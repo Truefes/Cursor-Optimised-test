@@ -1,14 +1,65 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { useSession } from "next-auth/react"
 import { redirect } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
-import { formatCurrency } from "@/lib/utils"
+import { CreateBudgetDialog } from "@/components/budget/create-budget-dialog"
+import { AddTransactionDialog } from "@/components/transaction/add-transaction-dialog"
+import { formatCurrency, calculatePercentage, getBudgetStatus } from "@/lib/utils"
+import { BarChart3, TrendingUp, Target, Plus, Settings } from "lucide-react"
+
+interface Budget {
+  id: string
+  name: string
+  totalAmount: number
+  period: string
+  startDate: string
+  endDate: string
+  categories: {
+    id: string
+    name: string
+    icon: string
+    color: string
+    allocated: number
+    spent: number
+  }[]
+  transactions: {
+    id: string
+    amount: number
+    description: string
+    date: string
+    category: {
+      name: string
+      icon: string
+    }
+  }[]
+  _count: {
+    transactions: number
+  }
+}
+
+interface UserStats {
+  level: number
+  points: number
+  streak: number
+  achievements: {
+    id: string
+    name: string
+    description: string
+    icon: string
+    unlockedAt: string
+  }[]
+}
 
 export default function DashboardPage() {
   const { data: session, status } = useSession()
+  const [budgets, setBudgets] = useState<Budget[]>([])
+  const [userStats, setUserStats] = useState<UserStats | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [selectedBudget, setSelectedBudget] = useState<Budget | null>(null)
 
   if (status === "loading") {
     return (
@@ -22,27 +73,75 @@ export default function DashboardPage() {
     redirect("/auth/signin")
   }
 
-  // Mock data for demonstration
-  const mockData = {
-    totalBudget: 5000,
-    totalSpent: 3200,
-    totalRemaining: 1800,
-    categories: [
-      { name: "Housing", allocated: 1500, spent: 1500, icon: "🏠", color: "#3B82F6" },
-      { name: "Food", allocated: 800, spent: 650, icon: "🍽️", color: "#10B981" },
-      { name: "Transportation", allocated: 400, spent: 320, icon: "🚗", color: "#F59E0B" },
-      { name: "Entertainment", allocated: 300, spent: 180, icon: "🎬", color: "#8B5CF6" },
-      { name: "Shopping", allocated: 200, spent: 150, icon: "🛍️", color: "#EC4899" },
-    ],
-    user: {
-      level: 3,
-      points: 1250,
-      streak: 7,
-      achievements: ["First Budget", "Week Warrior", "Transaction Master"]
+  useEffect(() => {
+    fetchDashboardData()
+  }, [])
+
+  const fetchDashboardData = async () => {
+    try {
+      setIsLoading(true)
+      
+      // Fetch budgets
+      const budgetsResponse = await fetch("/api/budgets")
+      if (budgetsResponse.ok) {
+        const budgetsData = await budgetsResponse.json()
+        setBudgets(budgetsData)
+        if (budgetsData.length > 0 && !selectedBudget) {
+          setSelectedBudget(budgetsData[0])
+        }
+      }
+
+      // Fetch user stats (we'll create this API later)
+      // For now, use mock data
+      setUserStats({
+        level: 3,
+        points: 1250,
+        streak: 7,
+        achievements: [
+          {
+            id: "1",
+            name: "First Steps",
+            description: "Created your first budget",
+            icon: "🎯",
+            unlockedAt: new Date().toISOString()
+          }
+        ]
+      })
+    } catch (error) {
+      console.error("Error fetching dashboard data:", error)
+    } finally {
+      setIsLoading(false)
     }
   }
 
-  const spentPercentage = (mockData.totalSpent / mockData.totalBudget) * 100
+  const handleBudgetCreated = (newBudget: Budget) => {
+    setBudgets(prev => [newBudget, ...prev])
+    setSelectedBudget(newBudget)
+  }
+
+  const handleTransactionAdded = (transaction: any) => {
+    // Refresh the selected budget to show updated spending
+    if (selectedBudget) {
+      fetchDashboardData()
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
+        </div>
+      </div>
+    )
+  }
+
+  // Calculate totals for current budget
+  const currentBudget = selectedBudget
+  const totalBudget = currentBudget?.totalAmount || 0
+  const totalSpent = currentBudget?.categories.reduce((sum, cat) => sum + cat.spent, 0) || 0
+  const totalRemaining = totalBudget - totalSpent
+  const spentPercentage = calculatePercentage(totalSpent, totalBudget)
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
@@ -61,164 +160,243 @@ export default function DashboardPage() {
           
           {/* User Level & Points */}
           <div className="flex items-center space-x-4">
-            <div className="level-badge">
-              Level {mockData.user.level}
-            </div>
-            <div className="text-right">
-              <div className="text-sm font-medium text-gray-900">{mockData.user.points} XP</div>
-              <div className="text-xs text-gray-600">🔥 {mockData.user.streak} day streak</div>
-            </div>
+            {userStats && (
+              <>
+                <div className="level-badge">
+                  Level {userStats.level}
+                </div>
+                <div className="text-right">
+                  <div className="text-sm font-medium text-gray-900">{userStats.points} XP</div>
+                  <div className="text-xs text-gray-600">🔥 {userStats.streak} day streak</div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </header>
 
       <div className="container mx-auto px-4 py-8">
-        {/* Budget Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <Card className="budget-card">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-lg">Total Budget</CardTitle>
-              <CardDescription>This month's allocated budget</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-blue-600">
-                {formatCurrency(mockData.totalBudget)}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="budget-card">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-lg">Total Spent</CardTitle>
-              <CardDescription>{spentPercentage.toFixed(1)}% of budget used</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-red-600 mb-2">
-                {formatCurrency(mockData.totalSpent)}
-              </div>
-              <Progress value={spentPercentage} className="h-2" />
-            </CardContent>
-          </Card>
-
-          <Card className="budget-card">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-lg">Remaining</CardTitle>
-              <CardDescription>Available to spend</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-green-600">
-                {formatCurrency(mockData.totalRemaining)}
-              </div>
-            </CardContent>
-          </Card>
+        {/* Quick Actions */}
+        <div className="flex flex-wrap gap-4 mb-8">
+          <CreateBudgetDialog onBudgetCreated={handleBudgetCreated} />
+          <AddTransactionDialog 
+            budgets={budgets}
+            selectedBudgetId={selectedBudget?.id}
+            onTransactionAdded={handleTransactionAdded}
+          />
+          <Button variant="outline" className="gap-2">
+            <BarChart3 className="h-4 w-4" />
+            Analytics
+          </Button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Categories */}
-          <div className="lg:col-span-2">
-            <Card className="budget-card">
-              <CardHeader>
-                <CardTitle>Budget Categories</CardTitle>
-                <CardDescription>Track spending across different categories</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {mockData.categories.map((category, index) => {
-                    const percentage = (category.spent / category.allocated) * 100
-                    const statusClass = percentage < 80 ? "budget-status-under" : 
-                                      percentage < 100 ? "budget-status-near" : "budget-status-over"
-                    
-                    return (
-                      <div key={index} className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-3">
-                            <span className="text-2xl">{category.icon}</span>
-                            <div>
-                              <h4 className="font-medium">{category.name}</h4>
-                              <p className="text-sm text-gray-600">
-                                {formatCurrency(category.spent)} of {formatCurrency(category.allocated)}
-                              </p>
-                            </div>
-                          </div>
-                          <div className={`px-2 py-1 rounded text-xs font-medium ${statusClass}`}>
-                            {percentage.toFixed(0)}%
-                          </div>
-                        </div>
-                        <Progress 
-                          value={percentage} 
-                          className="h-2" 
-                          style={{ 
-                            "--progress-background": category.color + "20",
-                            "--progress-foreground": category.color 
-                          } as React.CSSProperties}
-                        />
-                      </div>
-                    )
-                  })}
-                </div>
-              </CardContent>
-            </Card>
+        {budgets.length === 0 ? (
+          /* Empty State */
+          <div className="text-center py-12">
+            <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Target className="h-12 w-12 text-gray-400" />
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Create Your First Budget</h2>
+            <p className="text-gray-600 mb-6 max-w-md mx-auto">
+              Get started with zero-based budgeting by creating your first budget. 
+              Allocate every dollar to specific categories and take control of your finances.
+            </p>
+            <CreateBudgetDialog onBudgetCreated={handleBudgetCreated} />
           </div>
-
-          {/* Gamification Panel */}
-          <div className="space-y-6">
-            {/* Achievements */}
-            <Card className="budget-card">
-              <CardHeader>
-                <CardTitle>Recent Achievements</CardTitle>
-                <CardDescription>Your latest accomplishments</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {mockData.user.achievements.map((achievement, index) => (
-                    <div key={index} className="achievement-badge">
-                      🏆 {achievement}
-                    </div>
+        ) : (
+          <>
+            {/* Budget Selector */}
+            {budgets.length > 1 && (
+              <div className="mb-6">
+                <h2 className="text-lg font-semibold mb-3">Select Budget</h2>
+                <div className="flex flex-wrap gap-2">
+                  {budgets.map(budget => (
+                    <Button
+                      key={budget.id}
+                      variant={selectedBudget?.id === budget.id ? "default" : "outline"}
+                      onClick={() => setSelectedBudget(budget)}
+                      className="text-sm"
+                    >
+                      {budget.name}
+                    </Button>
                   ))}
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            )}
 
-            {/* Quick Actions */}
-            <Card className="budget-card">
-              <CardHeader>
-                <CardTitle>Quick Actions</CardTitle>
-                <CardDescription>Common tasks</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <Button className="w-full" variant="default">
-                  ➕ Add Transaction
-                </Button>
-                <Button className="w-full" variant="outline">
-                  📊 View Analytics
-                </Button>
-                <Button className="w-full" variant="outline">
-                  🎯 Create New Budget
-                </Button>
-              </CardContent>
-            </Card>
-
-            {/* Progress to Next Level */}
-            <Card className="budget-card">
-              <CardHeader>
-                <CardTitle>Level Progress</CardTitle>
-                <CardDescription>Keep going to reach Level {mockData.user.level + 1}!</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span>Level {mockData.user.level}</span>
-                    <span>Level {mockData.user.level + 1}</span>
+            {/* Budget Overview */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+              <Card className="budget-card">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg">Total Budget</CardTitle>
+                  <CardDescription>
+                    {currentBudget?.period} budget • {currentBudget?.name}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold text-blue-600">
+                    {formatCurrency(totalBudget)}
                   </div>
-                  <Progress value={75} className="h-3" />
-                  <p className="text-xs text-gray-600 text-center">
-                    250 XP to next level
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
+                </CardContent>
+              </Card>
+
+              <Card className="budget-card">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg">Total Spent</CardTitle>
+                  <CardDescription>{spentPercentage.toFixed(1)}% of budget used</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold text-red-600 mb-2">
+                    {formatCurrency(totalSpent)}
+                  </div>
+                  <Progress value={spentPercentage} className="h-2" />
+                </CardContent>
+              </Card>
+
+              <Card className="budget-card">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg">Remaining</CardTitle>
+                  <CardDescription>Available to spend</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className={`text-3xl font-bold ${totalRemaining >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {formatCurrency(totalRemaining)}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              {/* Categories */}
+              <div className="lg:col-span-2">
+                <Card className="budget-card">
+                  <CardHeader>
+                    <CardTitle>Budget Categories</CardTitle>
+                    <CardDescription>Track spending across different categories</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {currentBudget?.categories.length === 0 ? (
+                      <p className="text-gray-500 text-center py-4">No categories in this budget</p>
+                    ) : (
+                      <div className="space-y-4">
+                        {currentBudget?.categories.map((category, index) => {
+                          const percentage = calculatePercentage(category.spent, category.allocated)
+                          const status = getBudgetStatus(category.spent, category.allocated)
+                          const statusClass = `budget-status-${status}`
+                          
+                          return (
+                            <div key={category.id} className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center space-x-3">
+                                  <span className="text-2xl">{category.icon}</span>
+                                  <div>
+                                    <h4 className="font-medium">{category.name}</h4>
+                                    <p className="text-sm text-gray-600">
+                                      {formatCurrency(category.spent)} of {formatCurrency(category.allocated)}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                  <div className={`px-2 py-1 rounded text-xs font-medium ${statusClass}`}>
+                                    {percentage.toFixed(0)}%
+                                  </div>
+                                  <AddTransactionDialog
+                                    budgets={budgets}
+                                    selectedBudgetId={currentBudget?.id}
+                                    selectedCategoryId={category.id}
+                                    onTransactionAdded={handleTransactionAdded}
+                                  />
+                                </div>
+                              </div>
+                              <Progress 
+                                value={percentage} 
+                                className="h-2" 
+                                style={{ 
+                                  "--progress-background": category.color + "20",
+                                  "--progress-foreground": category.color 
+                                } as React.CSSProperties}
+                              />
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Sidebar */}
+              <div className="space-y-6">
+                {/* Recent Achievements */}
+                {userStats?.achievements && userStats.achievements.length > 0 && (
+                  <Card className="budget-card">
+                    <CardHeader>
+                      <CardTitle>Recent Achievements</CardTitle>
+                      <CardDescription>Your latest accomplishments</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        {userStats.achievements.slice(0, 3).map((achievement) => (
+                          <div key={achievement.id} className="achievement-badge">
+                            <span className="mr-2">{achievement.icon}</span>
+                            {achievement.name}
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Recent Transactions */}
+                {currentBudget?.transactions && currentBudget.transactions.length > 0 && (
+                  <Card className="budget-card">
+                    <CardHeader>
+                      <CardTitle>Recent Transactions</CardTitle>
+                      <CardDescription>Latest activity</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        {currentBudget.transactions.slice(0, 5).map((transaction) => (
+                          <div key={transaction.id} className="flex items-center justify-between text-sm">
+                            <div className="flex items-center space-x-2">
+                              <span>{transaction.category.icon}</span>
+                              <span className="truncate">{transaction.description}</span>
+                            </div>
+                            <span className="font-medium text-red-600">
+                              -{formatCurrency(transaction.amount)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Level Progress */}
+                {userStats && (
+                  <Card className="budget-card">
+                    <CardHeader>
+                      <CardTitle>Level Progress</CardTitle>
+                      <CardDescription>Keep going to reach Level {userStats.level + 1}!</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span>Level {userStats.level}</span>
+                          <span>Level {userStats.level + 1}</span>
+                        </div>
+                        <Progress value={75} className="h-3" />
+                        <p className="text-xs text-gray-600 text-center">
+                          250 XP to next level
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
