@@ -1,0 +1,186 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String  @map("user_id")
+  type              String
+  provider          String
+  providerAccountId String  @map("provider_account_id")
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique @map("session_token")
+  userId       String   @map("user_id")
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime? @map("email_verified")
+  image         String?
+  password      String?   // For credentials authentication
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  
+  // Gamification fields
+  level         Int       @default(1)
+  points        Int       @default(0)
+  streak        Int       @default(0)
+  lastActivity  DateTime? @map("last_activity")
+
+  accounts          Account[]
+  sessions          Session[]
+  budgets           Budget[]
+  transactions      Transaction[]
+  achievements      UserAchievement[]
+  collaborations    BudgetCollaborator[]
+
+  @@map("users")
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verificationtokens")
+}
+
+model Budget {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  totalAmount Decimal  @db.Decimal(10, 2)
+  period      String   // monthly, weekly, yearly
+  startDate   DateTime @map("start_date")
+  endDate     DateTime @map("end_date")
+  isShared    Boolean  @default(false) @map("is_shared")
+  shareToken  String?  @unique @map("share_token")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  
+  userId      String   @map("user_id")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  categories      BudgetCategory[]
+  transactions    Transaction[]
+  collaborators   BudgetCollaborator[]
+
+  @@map("budgets")
+}
+
+model BudgetCategory {
+  id          String  @id @default(cuid())
+  name        String
+  icon        String
+  color       String
+  allocated   Decimal @db.Decimal(10, 2)
+  spent       Decimal @default(0) @db.Decimal(10, 2)
+  isDefault   Boolean @default(false) @map("is_default")
+  
+  budgetId    String  @map("budget_id")
+  budget      Budget  @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  
+  transactions Transaction[]
+
+  @@map("budget_categories")
+}
+
+model Transaction {
+  id          String   @id @default(cuid())
+  amount      Decimal  @db.Decimal(10, 2)
+  description String
+  date        DateTime
+  isRecurring Boolean  @default(false) @map("is_recurring")
+  frequency   String?  // daily, weekly, monthly, yearly
+  attachments String[] // URLs to receipt images
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  
+  userId      String @map("user_id")
+  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  budgetId    String         @map("budget_id")
+  budget      Budget         @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  
+  categoryId  String         @map("category_id")
+  category    BudgetCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@map("transactions")
+}
+
+model BudgetCollaborator {
+  id         String @id @default(cuid())
+  permission String // view, edit
+  joinedAt   DateTime @default(now()) @map("joined_at")
+  
+  userId     String @map("user_id")
+  user       User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  budgetId   String @map("budget_id")
+  budget     Budget @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, budgetId])
+  @@map("budget_collaborators")
+}
+
+model Achievement {
+  id          String @id @default(cuid())
+  name        String
+  description String
+  icon        String
+  points      Int
+  condition   String // JSON string describing unlock condition
+  rarity      String @default("common") // common, rare, epic, legendary
+  createdAt   DateTime @default(now()) @map("created_at")
+  
+  userAchievements UserAchievement[]
+
+  @@map("achievements")
+}
+
+model UserAchievement {
+  id            String   @id @default(cuid())
+  unlockedAt    DateTime @default(now()) @map("unlocked_at")
+  
+  userId        String   @map("user_id")
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  achievementId String   @map("achievement_id")
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, achievementId])
+  @@map("user_achievements")
+}
